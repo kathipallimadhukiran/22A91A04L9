@@ -31,7 +31,9 @@ app.get('/urls', (req, res) => {
             .map(([code, data]) => ({
                 originalUrl: data.originalUrl,
                 shortLink: `http://localhost:${PORT}/${code}`,
-                expiry: data.expiry
+                expiry: data.expiry,
+                clicks: data.clicks || 0,
+                clickHistory: data.clickHistory || []
             }));
         res.json(activeUrls);
     } catch (error) {
@@ -65,13 +67,38 @@ app.post('/shorturls', (req, res) => {
     // Store URL data
     urls[code] = {
         originalUrl: url,
-        expiry: expiryDate.toISOString()
+        expiry: expiryDate.toISOString(),
+        clicks: 0,
+        clickHistory: []
     };
 
     // Return response in the specified format
     res.status(201).json({
         shortLink: `http://localhost:${PORT}/${code}`,
         expiry: expiryDate.toISOString()
+    });
+});
+
+// Get URL statistics
+app.get('/stats/:code', (req, res) => {
+    const { code } = req.params;
+    const urlData = urls[code];
+
+    if (!urlData) {
+        return res.status(404).json({ error: 'URL not found' });
+    }
+
+    if (new Date(urlData.expiry) < new Date()) {
+        delete urls[code];
+        return res.status(410).json({ error: 'URL has expired' });
+    }
+
+    res.json({
+        originalUrl: urlData.originalUrl,
+        shortLink: `http://localhost:${PORT}/${code}`,
+        clicks: urlData.clicks || 0,
+        clickHistory: urlData.clickHistory || [],
+        expiry: urlData.expiry
     });
 });
 
@@ -90,6 +117,17 @@ app.get('/:code', (req, res) => {
         return res.status(410).json({ error: 'URL has expired' });
     }
 
+    // Record click with timestamp and basic geo info
+    const clickData = {
+        timestamp: new Date().toISOString(),
+        userAgent: req.get('user-agent') || 'Unknown',
+        referrer: req.get('referrer') || 'Direct'
+    };
+
+    // Update click count and history
+    urlData.clicks = (urlData.clicks || 0) + 1;
+    urlData.clickHistory = [...(urlData.clickHistory || []), clickData];
+
     res.redirect(urlData.originalUrl);
 });
 
@@ -98,5 +136,6 @@ app.listen(PORT, () => {
     console.log('Available routes:');
     console.log('- GET /urls');
     console.log('- POST /shorturls');
+    console.log('- GET /stats/:code');
     console.log('- GET /:code');
 }); 
